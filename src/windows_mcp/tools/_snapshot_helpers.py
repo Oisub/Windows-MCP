@@ -13,6 +13,7 @@ import time
 from fastmcp.utilities.types import Image
 from textwrap import dedent
 from windows_mcp.desktop.service import Desktop, Size
+from windows_mcp.desktop.views import ScreenshotGeometry
 from windows_mcp.desktop.utils import remove_private_use_chars, repair_surrogates
 
 
@@ -37,6 +38,12 @@ def _screenshot_scale() -> float:
 def _snapshot_profile_enabled() -> bool:
     value = os.getenv("WINDOWS_MCP_PROFILE_SNAPSHOT", "")
     return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _geometry_of(desktop: object) -> ScreenshotGeometry | None:
+    """The last screenshot's geometry, or None (also for test doubles)."""
+    geometry = getattr(desktop, "last_capture", None)
+    return geometry if isinstance(geometry, ScreenshotGeometry) else None
 
 
 def _as_bool(value: bool | str) -> bool:
@@ -137,6 +144,7 @@ def capture_desktop_state(
         "active_desktop": active_desktop,
         "all_desktops": all_desktops,
         "screenshot_bytes": screenshot_bytes,
+        "geometry": _geometry_of(desktop) if use_vision else None,
     }
 
 
@@ -186,17 +194,21 @@ def build_snapshot_response(
     if desktop_state.screenshot_original_size:
         orig = desktop_state.screenshot_original_size
         scale = desktop_state.screenshot_scale or 1.0
+        geometry = capture_result.get("geometry")
         if scale < 1.0:
-            coord_scale = round(1.0 / scale, 6)
-            metadata_text += (
-                f"Screenshot Original Size: {orig.to_string()}\n"
-                f"Screenshot Coordinate Scale: {coord_scale} "
-                f"— image pixels are downscaled; multiply every image pixel coordinate by "
-                f"{coord_scale} before passing to Click, Move, Scroll, or any loc= argument "
-                f"(e.g. image pixel (200, 150) → screen coordinate ({round(200 * coord_scale)}, {round(150 * coord_scale)}))\n"
-            )
+            metadata_text += f"Screenshot Original Size: {orig.to_string()}\n"
         else:
             metadata_text += f"Screenshot Size: {orig.to_string()}\n"
+        # Fork change: upstream told the agent to multiply image pixels by the
+        # scale, which is wrong whenever the capture does not start at (0, 0)
+        # (region or display captures). The server now maps image points itself.
+        if geometry is not None and (scale < 1.0 or geometry.left or geometry.top):
+            metadata_text += (
+                f"Image Coordinates: this image starts at screen ({geometry.left},{geometry.top}) "
+                f"and each image pixel is {geometry.x_ratio:.4f}x{geometry.y_ratio:.4f} screen pixels. "
+                f"To act on something seen in the image, pass its image pixel position with "
+                f"coords='image' to Click, Type, Scroll or Move - the server converts it.\n"
+            )
     if desktop_state.available_displays:
         metadata_text += "Visible Displays: "
         metadata_text += "; ".join(

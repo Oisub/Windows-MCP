@@ -26,6 +26,13 @@
 
 mcp-name: io.github.CursorTouch/Windows-MCP
 
+> [!NOTE]
+> **This is a fork** of [CursorTouch/Windows-MCP](https://github.com/CursorTouch/Windows-MCP), tracking upstream with a few changes:
+>
+> - **Telemetry is opt-in.** `ANONYMIZED_TELEMETRY` defaults to off; set it to `true` to enable. (Upstream: on by default, and error events include exception messages.)
+> - **`coords='image'` on Click / Type / Scroll / Move.** Pass a pixel read straight off the last screenshot; the server maps it to the screen, including downscaling *and* the capture origin. Upstream asks the agent to multiply by the scale itself, which is also wrong for `region`/`display` captures that do not start at (0, 0).
+> - Doc fix: the tool filter flag is `--exclude-tools` (CLAUDE.md said `--disable-tools`).
+
 ## Updates
 - Windows-MCP reached `2M+ Users` in [Claude Desktop Extensiosn](https://claude.ai/directory). 
 - Try out [🪟Windows-Use](https://pypi.org/project/windows-use/), an agent built using Windows-MCP.
@@ -654,7 +661,7 @@ All variables are optional unless noted. Set them via the `env` key in `claude_d
 
 | Variable | Default | Description |
 |---|---|---|
-| `ANONYMIZED_TELEMETRY` | `true` | Set to `false` to disable anonymous usage telemetry. No personal data, tool arguments, or outputs are ever collected regardless of this setting. |
+| `ANONYMIZED_TELEMETRY` | `false` (this fork) | Telemetry is **opt-in** in this fork: set to `true` to enable it. Upstream defaults to `true`. |
 | `POSTHOG_API_KEY` | Project default | Override the PostHog project write key used for anonymous telemetry. Set to an empty string to skip PostHog client initialization. |
 | `POSTHOG_HOST` | `https://us.i.posthog.com` | Override the PostHog host for anonymous telemetry, such as for a self-hosted PostHog deployment. |
 

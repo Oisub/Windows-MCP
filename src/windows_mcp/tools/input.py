@@ -75,6 +75,24 @@ def _as_point(value: object, name: str) -> list[int]:
     return parsed
 
 
+Coords = Literal["screen", "image"]
+
+_COORDS_HELP = (
+    " Set coords='image' to pass pixel coordinates read straight off the last screenshot; "
+    "the server maps them to the screen (downscaling and region/display offsets included). "
+    "Default coords='screen' takes virtual-desktop coordinates, as Snapshot's UI tree reports them."
+)
+
+
+def _to_screen(desktop: Any, loc: list, coords: str, name: str = "loc") -> list:
+    """Fork addition: map an image-space point to screen space when asked to."""
+    if coords == "image":
+        return desktop.image_to_screen(_as_point(loc, name))
+    if coords != "screen":
+        raise ValueError("coords must be 'screen' or 'image'")
+    return loc
+
+
 def _text_matches(value: object | None, expected: str | None) -> bool:
     if expected is None:
         return True
@@ -224,7 +242,7 @@ def register(
             "Performs mouse clicks at specified coordinates [x, y] or passing a UI element's label/id. "
             "Supports button types: 'left' for selection/activation, 'right' for context menus, 'middle'. "
             "Supports clicks: 0=hover only (no click), 1=single click (select/focus), 2=double click (open/activate). "
-            "Provide either loc or label."
+            "Provide either loc or label." + _COORDS_HELP
         ),
         annotations=ToolAnnotations(
             title="Click",
@@ -240,6 +258,7 @@ def register(
         label: int | None = None,
         button: Literal["left", "right", "middle"] = "left",
         clicks: int = 1,
+        coords: Coords = "screen",
         ctx: Context = None,
     ) -> str:
         desktop = get_desktop()
@@ -248,6 +267,8 @@ def register(
             raise ValueError("Either loc or label must be provided.")
         if label is not None:
             loc = _resolve_label(desktop, label)
+        else:
+            loc = _to_screen(desktop, loc, coords)
         if len(loc) != 2:
             raise ValueError("Location must be a list of exactly 2 integers [x, y]")
         x, y = loc[0], loc[1]
@@ -257,7 +278,7 @@ def register(
 
     @mcp.tool(
         name="Type",
-        description="Types text at specified coordinates [x, y] or passing a UI element's label/id. Set clear=True to clear existing text first, False to append. Set press_enter=True to submit after typing. Set caret_position to 'start' (beginning), 'end' (end), or 'idle' (default). Provide either loc or label. clear and press_enter accept only true or false. An empty text types nothing, so combine it with clear=True to just empty a field.",
+        description="Types text at specified coordinates [x, y] or passing a UI element's label/id. Set clear=True to clear existing text first, False to append. Set press_enter=True to submit after typing. Set caret_position to 'start' (beginning), 'end' (end), or 'idle' (default). Provide either loc or label. clear and press_enter accept only true or false. An empty text types nothing, so combine it with clear=True to just empty a field." + _COORDS_HELP,
         annotations=ToolAnnotations(
             title="Type",
             readOnlyHint=False,
@@ -274,6 +295,7 @@ def register(
         clear: bool | str = False,
         caret_position: Literal["start", "idle", "end"] = "idle",
         press_enter: bool | str = False,
+        coords: Coords = "screen",
         ctx: Context = None,
     ) -> str:
         desktop = get_desktop()
@@ -284,6 +306,8 @@ def register(
             raise ValueError("Either loc or label must be provided.")
         if label is not None:
             loc = _resolve_label(desktop, label)
+        else:
+            loc = _to_screen(desktop, loc, coords)
         if len(loc) != 2:
             raise ValueError("Location must be a list of exactly 2 integers [x, y]")
         x, y = loc[0], loc[1]
@@ -298,7 +322,7 @@ def register(
 
     @mcp.tool(
         name="Scroll",
-        description="Scrolls at coordinates [x, y], a UI element's label/id, or current mouse position if loc=None. Type: vertical (default) or horizontal. Direction: up/down for vertical, left/right for horizontal. wheel_times controls amount (1 wheel ≈ 3-5 lines). Use for navigating long content, lists, and web pages.",
+        description="Scrolls at coordinates [x, y], a UI element's label/id, or current mouse position if loc=None. Type: vertical (default) or horizontal. Direction: up/down for vertical, left/right for horizontal. wheel_times controls amount (1 wheel ≈ 3-5 lines). Use for navigating long content, lists, and web pages." + _COORDS_HELP,
         annotations=ToolAnnotations(
             title="Scroll",
             readOnlyHint=False,
@@ -314,12 +338,15 @@ def register(
         type: Literal["horizontal", "vertical"] = "vertical",
         direction: Literal["up", "down", "left", "right"] = "down",
         wheel_times: int = 1,
+        coords: Coords = "screen",
         ctx: Context = None,
     ) -> str:
         desktop = get_desktop()
         loc = _as_loc(loc)
         if label is not None:
             loc = _resolve_label(desktop, label)
+        elif loc is not None:
+            loc = _to_screen(desktop, loc, coords)
         if loc and len(loc) != 2:
             raise ValueError("Location must be a list of exactly 2 integers [x, y]")
         response = desktop.scroll(loc, type, direction, wheel_times)
@@ -340,7 +367,8 @@ def register(
             "to the target coordinates, or provide from_loc=[x, y] to make the drag explicit-start "
             "and atomic in one tool call. Optional duration controls bounded intermediate movement. "
             "Default (drag=False) is a simple cursor move (hover). "
-            "Provide either loc or label."
+            "Provide either loc or label. coords='image' applies to both loc and from_loc."
+            + _COORDS_HELP
         ),
         annotations=ToolAnnotations(
             title="Move",
@@ -357,6 +385,7 @@ def register(
         drag: bool | str = False,
         from_loc: list[int] | str | None = None,
         duration: float | int | str | None = None,
+        coords: Coords = "screen",
         ctx: Context = None,
     ) -> str:
         desktop = get_desktop()
@@ -367,6 +396,10 @@ def register(
             raise ValueError("Either loc or label must be provided.")
         if label is not None:
             loc = _resolve_label(desktop, label)
+        else:
+            loc = _to_screen(desktop, loc, coords)
+        if from_loc is not None:
+            from_loc = _to_screen(desktop, from_loc, coords, "from_loc")
         if not isinstance(loc, list) or len(loc) != 2:
             raise ValueError("loc must be a list of exactly 2 integers [x, y]")
         if from_loc is not None and (not isinstance(from_loc, list) or len(from_loc) != 2):

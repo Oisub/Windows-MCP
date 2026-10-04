@@ -321,7 +321,9 @@ def _build_mcp() -> FastMCP:
         nonlocal control_loop
         control_loop = asyncio.get_running_loop()
 
-        if os.getenv("ANONYMIZED_TELEMETRY", "true").lower() != "false":
+        # Fork change: telemetry is opt-in. Upstream defaults it on, and error
+        # events carry str(exception), which can include window titles or paths.
+        if os.getenv("ANONYMIZED_TELEMETRY", "false").lower() in ("1", "true", "yes", "on"):
             analytics = PostHogAnalytics()
         desktop = Desktop()
         screen_size = desktop.get_screen_size()

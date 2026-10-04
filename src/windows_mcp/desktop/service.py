@@ -9,7 +9,15 @@ from windows_mcp.vdm.core import (
     get_current_desktop,
     is_window_on_current_desktop,
 )
-from windows_mcp.desktop.views import DesktopState, Window, Browser, Status, Size, Display
+from windows_mcp.desktop.views import (
+    DesktopState,
+    Window,
+    Browser,
+    Status,
+    Size,
+    Display,
+    ScreenshotGeometry,
+)
 from windows_mcp.tree.views import BoundingBox, TreeElementNode, TreeState, SemanticNode
 from PIL import ImageFont, ImageDraw, Image
 from windows_mcp.tree.service import Tree
@@ -83,6 +91,34 @@ class Desktop:
         self.encoding = getpreferredencoding()
         self.tree = Tree(self)
         self.desktop_state = None
+        # Fork addition: geometry of the most recent screenshot, for
+        # image_to_screen(). Kept apart from desktop_state because non-vision
+        # calls (WaitFor, Snapshot without vision) replace desktop_state.
+        self.last_capture: ScreenshotGeometry | None = None
+
+    def image_to_screen(self, loc: list[int]) -> list[int]:
+        """Map a pixel of the most recent screenshot to virtual-desktop coordinates.
+
+        screen = capture origin + image pixel * (original size / image size), per
+        axis. The origin matters: for region or display captures the image's
+        (0, 0) is not the screen's (0, 0).
+        """
+        cap = self.last_capture
+        if cap is None:
+            raise ValueError(
+                "coords='image' needs a screenshot first: call Screenshot, or Snapshot "
+                "with use_vision=True."
+            )
+        x, y = loc
+        if not (0 <= x <= cap.image_width and 0 <= y <= cap.image_height):
+            raise ValueError(
+                f"image point ({x},{y}) is outside the last screenshot "
+                f"({cap.image_width}x{cap.image_height})."
+            )
+        return [
+            round(cap.left + x * cap.x_ratio),
+            round(cap.top + y * cap.y_ratio),
+        ]
 
     def get_state(
         self,
@@ -260,6 +296,18 @@ class Desktop:
                     (int(screenshot.width * scale), int(screenshot.height * scale)),
                     Image.LANCZOS,
                 )
+            if capture_rect is not None:
+                origin_left, origin_top = capture_rect.left, capture_rect.top
+            else:
+                origin_left, origin_top, _, _ = uia.GetVirtualScreenRect()
+            self.last_capture = ScreenshotGeometry(
+                left=origin_left,
+                top=origin_top,
+                image_width=screenshot.width,
+                image_height=screenshot.height,
+                x_ratio=screenshot_original_size.width / max(screenshot.width, 1),
+                y_ratio=screenshot_original_size.height / max(screenshot.height, 1),
+            )
 
             if profile_enabled:
                 screenshot_resize_ms = (perf_counter() - stage_started_at) * 1000

@@ -55,6 +55,22 @@ class Size:
 
 
 @dataclass
+class ScreenshotGeometry:
+    """Where a returned screenshot sits on the virtual desktop (fork addition).
+
+    left/top: screen coordinates of the image's (0, 0).
+    x_ratio/y_ratio: screen pixels per image pixel (original / downscaled size).
+    """
+
+    left: int
+    top: int
+    image_width: int
+    image_height: int
+    x_ratio: float
+    y_ratio: float
+
+
+@dataclass
 class Display:
     index: int
     device_name: str
