@@ -1,5 +1,5 @@
 from contextlib import asynccontextmanager
-from windows_mcp.config import enable_debug
+from windows_mcp.config import control_gate_enabled, enable_debug, esc_takeover_enabled
 from windows_mcp.infrastructure.config import ControlConfig
 from windows_mcp.infrastructure import (
     AuthKeyMiddleware,
@@ -263,6 +263,13 @@ def _build_mcp() -> FastMCP:
     from windows_mcp.desktop import control_overlay
 
     controller = get_controller()
+    # Fork change: the desktop-control gate (input hooks, AI indicator overlay,
+    # user-takeover lease) is opt-in. Upstream always runs it; any physical
+    # key or mouse event then blocks every tool for 10 s and an indicator
+    # health hiccup fails the whole server closed (CONTROL_UNAVAILABLE). That
+    # suits an unattended VM, not a person chatting with the agent at the same
+    # machine. Set WINDOWS_MCP_CONTROL=on to restore upstream behaviour.
+    control_enabled = control_gate_enabled()
     notifier = ControlNotifier(controller)
     _control_notifier = notifier
     control_loop: asyncio.AbstractEventLoop | None = None
@@ -312,7 +319,8 @@ def _build_mcp() -> FastMCP:
             # begin_call waits for the visible AI indicator before any tool runs.
             apply_control_state(status)
 
-    controller.subscribe(show_control_state)
+    if control_enabled:
+        controller.subscribe(show_control_state)
 
     @asynccontextmanager
     async def lifespan(app: FastMCP):
@@ -330,34 +338,48 @@ def _build_mcp() -> FastMCP:
 
         watchdog = _start_watchdog(desktop)
 
-        # Set thresholds before installing input hooks; invalid TOML was rejected at load.
-        controller.mouse_takeover_units = _control_config.mouse_takeover_units
-        controller.mouse_takeover_pixels = _control_config.mouse_takeover_pixels
+        if control_enabled:
+            # Set thresholds before installing input hooks; invalid TOML was rejected at load.
+            controller.mouse_takeover_units = _control_config.mouse_takeover_units
+            controller.mouse_takeover_pixels = _control_config.mouse_takeover_pixels
+            # Fork addition: Esc-only reclaim for a shared (attended) machine.
+            controller.esc_takeover = esc_takeover_enabled()
 
         try:
-            control_overlay.start()
-            controller.set_health_probe(control_overlay.is_healthy)
-            controller.start()
-            notifier.start()
+            if control_enabled:
+                control_overlay.start()
+                controller.set_health_probe(control_overlay.is_healthy)
+                controller.start()
+                notifier.start()
+            else:
+                # Fork change: desktop-control gate disabled (WINDOWS_MCP_CONTROL
+                # unset/off). No input hooks, overlay or takeover lease; tools run
+                # directly. checkpoint_current() and the capture-suspend path are
+                # safe no-ops while the coordinator and overlay are not running.
+                logger.debug("Desktop-control gate disabled (WINDOWS_MCP_CONTROL=off)")
             logger.debug("Server started, entering main loop")
             yield
         finally:
-            await notifier.close()
             try:
-                controller.stop()
+                if control_enabled:
+                    await notifier.close()
+                    try:
+                        controller.stop()
+                    finally:
+                        control_overlay.stop()
             finally:
-                try:
-                    control_overlay.stop()
-                finally:
-                    logger.debug("Shutting down: stopping watchdog and analytics")
-                    if watchdog:
-                        watchdog.stop()
-                    if analytics:
-                        await analytics.close()
-                    control_loop = None
+                logger.debug("Shutting down: stopping watchdog and analytics")
+                if watchdog:
+                    watchdog.stop()
+                if analytics:
+                    await analytics.close()
+                control_loop = None
 
     _mcp = FastMCP(name="windows-mcp", instructions=instructions, lifespan=lifespan)
-    _mcp.add_middleware(ControlToolGate(controller, notifier))
+    if control_enabled:
+        # Fork change: only gate tool calls on desktop ownership when control is on.
+        # With it off, tools run without the per-call takeover/lease checks.
+        _mcp.add_middleware(ControlToolGate(controller, notifier))
     register_all(_mcp, get_desktop=_get_desktop, get_analytics=_get_analytics)
     return _mcp
 

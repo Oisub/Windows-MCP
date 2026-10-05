@@ -33,9 +33,19 @@ class ControlBlocked(RuntimeError):
 
 
 class ControlCoordinator:
-    def __init__(self, mouse_takeover_units: int = 120, mouse_takeover_pixels: int = 120):
+    def __init__(
+        self,
+        mouse_takeover_units: int = 120,
+        mouse_takeover_pixels: int = 120,
+        esc_takeover: bool = False,
+    ):
         self.mouse_takeover_units = mouse_takeover_units
         self.mouse_takeover_pixels = mouse_takeover_pixels
+        # Fork addition: when True, physical mouse movement and ordinary keys no
+        # longer reclaim control from the AI; only Esc does (plus the emergency
+        # chord and every fail-open path). For a person sharing the machine with
+        # the agent who does not want stray trackpad contact to seize control.
+        self.esc_takeover = esc_takeover
         self._lock = threading.Lock()
         self._state = "unavailable"
         self._generation = 0
@@ -204,7 +214,11 @@ class ControlCoordinator:
         return True
 
     def _tick_locked(self, now: float) -> bool:
-        if self._state == "ready" and now - self._last_physical_event < 10.0:
+        if (
+            not self.esc_takeover
+            and self._state == "ready"
+            and now - self._last_physical_event < 10.0
+        ):
             self._last_user = self._last_physical_event
             return self._set_locked("user")
         if (
@@ -458,21 +472,34 @@ class ControlCoordinator:
                 changed = self._tick_locked(now)
                 kind = event[0]
                 if (
-                    kind in ("key", "point", "raw")
+                    not self.esc_takeover
+                    and kind in ("key", "point", "raw")
                     and self._state == "ai"
                     and not self._visual_armed
                 ):
                     # Physical input was delivered while the indicator was not armed.
                     self._last_user = now
                     changed = self._set_locked("user") or changed
+                # The "hotkey" event is the deliberate takeover signal: the emergency
+                # chord always, and Esc as well in esc_takeover mode. It is honored
+                # in both modes; only the incidental movement/key paths below are
+                # suppressed when esc_takeover is on.
                 if kind == "hotkey" and self._state in ("ai", "takeover_pending"):
                     self._last_user = now
                     changed = self._set_locked("user") or changed
                     self._fast_takeover = False
-                elif kind in ("key", "point", "raw") and self._state in ("ready", "user"):
+                elif (
+                    not self.esc_takeover
+                    and kind in ("key", "point", "raw")
+                    and self._state in ("ready", "user")
+                ):
                     self._last_user = now
                     changed = self._set_locked("user") or changed
-                elif kind == "point" and self._state in ("ai", "takeover_pending"):
+                elif (
+                    not self.esc_takeover
+                    and kind == "point"
+                    and self._state in ("ai", "takeover_pending")
+                ):
                     if event[3] == 0x200:  # WM_MOUSEMOVE
                         changed = self._candidate_locked(now) or changed
                         if self._point_origin is None:
@@ -481,7 +508,11 @@ class ControlCoordinator:
                         if math.hypot(event[1] - ox, event[2] - oy) >= self.mouse_takeover_pixels:
                             self._last_user = now
                             changed = self._set_locked("user") or changed
-                elif kind == "raw" and self._state in ("ai", "takeover_pending"):
+                elif (
+                    not self.esc_takeover
+                    and kind == "raw"
+                    and self._state in ("ai", "takeover_pending")
+                ):
                     changed = self._candidate_locked(now) or changed
                     device, dx, dy = event[1:]
                     if self._raw_device is not None and device != self._raw_device:

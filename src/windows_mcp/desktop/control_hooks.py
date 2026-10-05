@@ -27,7 +27,9 @@ def physical_mouse(owner: Any, code: int, wparam: int, lparam: int) -> int:
             return _user32.CallNextHookEx(owner._mouse_hook, code, wparam, lparam)
         valid = True
         owner._last_physical_event = time.monotonic()
-        if wparam == 0x200 and owner._suppress:
+        if wparam == 0x200 and owner._suppress and not owner.esc_takeover:
+            # esc_takeover: movement is still swallowed below while suppressed, but
+            # never pauses or reclaims AI control (only Esc / the chord do).
             owner._fast_pending = True  # Pause AI before queued movement is processed.
             owner.input_ledger.block_new()
         button = _mouse_button(wparam, data.mouseData)
@@ -88,6 +90,22 @@ def physical_key(owner: Any, code: int, wparam: int, lparam: int) -> int:
             owner.input_ledger.block_new()
             owner._queue(("hotkey",))
             return 1
+        if (
+            down
+            and vk == 0x1B  # VK_ESCAPE
+            and owner.esc_takeover
+            and not owner._fast_takeover
+            and (owner._suppress or owner._state == "ai")
+        ):
+            # Fork addition: in esc_takeover mode Esc is the deliberate reclaim
+            # signal. Release suppression and hand control back to the user, but
+            # pass the key through so the focused app (e.g. the agent CLI) still
+            # sees it. Unlike the chord it is not quarantined.
+            owner._fast_takeover = True
+            owner._suppress = False
+            owner.input_ledger.block_new()
+            owner._queue(("hotkey",))
+            return _user32.CallNextHookEx(owner._key_hook, code, wparam, lparam)
         owner._queue(("key",))
         if owner._suppress and not owner._emergency:
             if time.monotonic() <= owner._deadline:
@@ -108,7 +126,7 @@ def raw_input(owner: Any, lparam: int) -> None:
     if raw is None:
         return  # Null devices can be touchpads; do not infer source.
     owner._last_physical_event = time.monotonic()
-    if owner._suppress:
+    if owner._suppress and not owner.esc_takeover:
         owner._fast_pending = True
         owner.input_ledger.block_new()
     owner._queue(("raw", *raw))

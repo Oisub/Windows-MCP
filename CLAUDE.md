@@ -82,6 +82,8 @@ The codebase follows a layered service architecture under `src/windows_mcp/`:
 | `WINDOWS_MCP_WATCHDOG` | _(off)_ | Set to `on`/`1`/`true`/`yes`/`enabled` to start the UIA focus WatchDog thread. Unset, or any other value, leaves it off. Opt-in because it only emits debug logging today but can crash the server via the UIA event pump (#332). Resolved in `__main__.py`. |
 | `WINDOWS_MCP_DEBUG` | `false` | Set to `1`/`true`/`yes`/`on` to enable debug mode. Checked in `config.py`. Also available as `--debug` CLI flag. |
 | `WINDOWS_MCP_DISABLE_FLASH` | _(off)_ | Set to `1`/`true`/`yes`/`on` to suppress the orange-red glowing border that briefly appears after every screenshot. Resolved in `desktop/flash_overlay.py`. |
+| `WINDOWS_MCP_CONTROL` | _(off)_ | Fork change. The desktop-control gate — input hooks, the AI-indicator overlay and the per-call takeover lease — is opt-in. Set to `1`/`true`/`yes`/`on` to run it (upstream always does). With it off, tools run without any ownership checks. Resolved in `config.py`, wired in `__main__.py`. |
+| `WINDOWS_MCP_ESC_TAKEOVER` | _(off)_ | Fork addition. Requires `WINDOWS_MCP_CONTROL=on`. Set to `1`/`true`/`yes`/`on` so only **Esc** reclaims control from the agent — physical mouse movement and ordinary keys no longer do. For an attended machine where incidental trackpad contact otherwise seizes control constantly. The `Ctrl+Alt+Shift+Backspace` emergency chord and every fail-open path still apply. Resolved in `config.py`, wired in `__main__.py`, enforced in `desktop/control.py` + `desktop/control_hooks.py`. |
 
 ## Fork Maintenance (Oisub/Windows-MCP)
 

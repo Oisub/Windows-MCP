@@ -30,6 +30,8 @@ mcp-name: io.github.CursorTouch/Windows-MCP
 > **This is a fork** of [CursorTouch/Windows-MCP](https://github.com/CursorTouch/Windows-MCP), tracking upstream with a few changes:
 >
 > - **Telemetry is opt-in.** `ANONYMIZED_TELEMETRY` defaults to off; set it to `true` to enable. (Upstream: on by default, and error events include exception messages.)
+> - **Desktop-control gate is opt-in.** Set `WINDOWS_MCP_CONTROL=on` to run the input hooks, AI-indicator overlay and per-call takeover lease. Upstream always runs them, which blocks every tool for 10 s on any physical key/mouse event and fails the server closed on an indicator hiccup — fine for an unattended VM, not for a person chatting with the agent at the same machine. With it off, tools run without ownership checks.
+> - **Esc-only takeover (opt-in).** With `WINDOWS_MCP_CONTROL=on`, also set `WINDOWS_MCP_ESC_TAKEOVER=on` so only **Esc** hands control back from the agent; physical mouse movement and ordinary keys no longer do. For an attended machine where incidental trackpad contact otherwise seizes control constantly. The `Ctrl+Alt+Shift+Backspace` emergency chord and every fail-open path still apply. (Upstream: any physical input reclaims control.)
 > - **`coords='image'` on Click / Type / Scroll / Move.** Pass a pixel read straight off the last screenshot; the server maps it to the screen, including downscaling *and* the capture origin. Upstream asks the agent to multiply by the scale itself, which is also wrong for `region`/`display` captures that do not start at (0, 0).
 > - Doc fix: the tool filter flag is `--exclude-tools` (CLAUDE.md said `--disable-tools`).
 

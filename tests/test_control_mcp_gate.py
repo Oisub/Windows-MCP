@@ -440,6 +440,7 @@ async def test_overlay_callback_never_waits_on_hook_thread(monkeypatch):
         return True
 
     monkeypatch.setenv("ANONYMIZED_TELEMETRY", "false")
+    monkeypatch.setenv("WINDOWS_MCP_CONTROL", "on")  # exercise the (opt-in) control path
     monkeypatch.setattr(wm, "_mcp", None)
     monkeypatch.setattr(control_module, "get_controller", lambda: controller)
     monkeypatch.setattr(tool_registry, "register_all", lambda *a, **k: None)
